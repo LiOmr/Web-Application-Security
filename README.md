@@ -72,7 +72,7 @@ curl -x http://127.0.0.1:8080 https://mail.ru
 
 ### 4. Сканер уязвимостей
 **Оценка: 5 баллов**
-Реализовать один из вариантов проверки (указан преподавателем):
+Реализовать один из вариантов проверки:
 
 1. **Command Injection**
    - Проверка параметров через внедрение команд
@@ -86,16 +86,4 @@ curl -x http://127.0.0.1:8080 https://mail.ru
    - Перебор директорий из словаря [dicc.txt](https://github.com/maurosoria/dirsearch/blob/master/db/dicc.txt)
 6. **Param-miner**
    - Поиск скрытых GET-параметров из [словаря](https://github.com/PortSwigger/param-miner/blob/master/resources/params)
-
-## Инструкция по запуску
-```bash
-docker-compose up --build
-```
-
-## Проверка работы
-Использовать curl или браузер с настроенным прокси для отправки запросов:
-- HTTP: `curl -x http://127.0.0.1:8080 http://example.com`
-- HTTPS: `curl -x http://127.0.0.1:8080 https://example.com`
-
-
 
