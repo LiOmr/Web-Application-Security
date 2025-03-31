@@ -1,6 +1,6 @@
 # Web Application Security
 
-```markdown
+
 # HTTP Прокси сервер и сканер уязвимостей
 
 Написать HTTP прокси сервер и простой сканер уязвимостей на его основе (часть функционала Burp Suite без GUI).  
@@ -24,13 +24,11 @@
 Должны успешно проксироваться HTTP запросы.  
 Команда:
 
-```bash
 curl -x http://127.0.0.1:8080 http://mail.ru
-```
+
 
 (8080 – порт, на котором запущена программа) должна возвращать:
 
-```html
 <html>
 <head><title>301 Moved Permanently</title></head>
 <body bgcolor="white">
@@ -38,17 +36,14 @@ curl -x http://127.0.0.1:8080 http://mail.ru
 <hr><center>nginx/1.14.1</center>
 </body>
 </html>
-```
 
 На вход прокси приходит запрос вида:
 
-```
 GET http://mail.ru/ HTTP/1.1
 Host: mail.ru
 User-Agent: curl/7.64.1
 Accept: */*
 Proxy-Connection: Keep-Alive
-```
 
 Необходимо:
 - Считать хост и порт из первой строчки
@@ -57,16 +52,13 @@ Proxy-Connection: Keep-Alive
 
 Отправить на считанный хост (mail.ru:80) получившийся запрос:
 
-```
 GET / HTTP/1.1
 Host: mail.ru
 User-Agent: curl/7.64.1
 Accept: */*
-```
 
 Перенаправить все, что будет получено в ответ:
 
-```
 HTTP/1.1 301 Moved Permanently
 Server: nginx/1.14.1
 Date: Sat, 12 Sep 2020 08:04:13 GMT
@@ -82,7 +74,6 @@ Location: https://mail.ru/
 <hr><center>nginx/1.14.1</center>
 </body>
 </html>
-```
 
 Убедиться, что:
 - Проксируются все типы запросов (GET, POST, HEAD, OPTIONS)
@@ -129,4 +120,3 @@ HTTP/1.0 200 Connection established
 - Установить защищенное соединение с хостом (mail.ru:443), отправить в него все, что было получено и расшифровано от curl и вернуть ответ.
 
 Убедиться, что получается зайти на сайт mail.ru, авторизоваться и получить список писем.
-```
