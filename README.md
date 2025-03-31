@@ -29,6 +29,7 @@ curl -x http://127.0.0.1:8080 http://mail.ru
 
 (8080 – порт, на котором запущена программа) должна возвращать:
 
+```html
 <html>
 <head><title>301 Moved Permanently</title></head>
 <body bgcolor="white">
@@ -36,7 +37,7 @@ curl -x http://127.0.0.1:8080 http://mail.ru
 <hr><center>nginx/1.14.1</center>
 </body>
 </html>
-
+```
 На вход прокси приходит запрос вида:
 
 GET http://mail.ru/ HTTP/1.1
@@ -67,6 +68,7 @@ Content-Length: 185
 Connection: close
 Location: https://mail.ru/
 
+```html
 <html>
 <head><title>301 Moved Permanently</title></head>
 <body bgcolor="white">
@@ -74,7 +76,7 @@ Location: https://mail.ru/
 <hr><center>nginx/1.14.1</center>
 </body>
 </html>
-
+```
 Убедиться, что:
 - Проксируются все типы запросов (GET, POST, HEAD, OPTIONS)
 - Проксируются все заголовки
