@@ -5,24 +5,22 @@ import (
 	"net"
 )
 
-// StartHTTPProxy - запускает TCP-сервер, слушает на 0.0.0.0:port,
-// каждое новое соединение обрабатывается в отдельной горутине handleClient.
-func StartHTTPProxy(port string) error {
-	listener, err := net.Listen("tcp", ":"+port)
+// StartProxy - запускает прокси на 0.0.0.0:port
+func StartProxy(port string) error {
+	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer ln.Close()
 
-	fmt.Printf("HTTP-прокси слушает на порту %s\n", port)
+	fmt.Printf("MITM-прокси слушает на порту %s\n", port)
 
 	for {
-		clientConn, err := listener.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Println("Ошибка Accept:", err)
 			continue
 		}
-
-		go handleClient(clientConn)
+		go handleClient(conn) // см. handler.go
 	}
 }

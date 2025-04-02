@@ -2,30 +2,27 @@ package proxy
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"net/url"
-	"strconv"
 	"strings"
-	"time"
 )
 
-// handleClient обрабатывает одно соединение от клиента (например, от curl).
 func handleClient(clientConn net.Conn) {
 	defer clientConn.Close()
 
 	reader := bufio.NewReader(clientConn)
-
-	// 1) Считываем первую строку запроса
 	firstLine, err := reader.ReadString('\n')
 	if err != nil {
-		fmt.Println("Ошибка чтения первой строки запроса:", err)
 		return
 	}
 	firstLine = strings.TrimSpace(firstLine)
+	if firstLine == "" {
+		return
+	}
 
-	// Разбиваем по пробелам - метод, URL, версия
 	parts := strings.SplitN(firstLine, " ", 3)
 	if len(parts) != 3 {
 		fmt.Println("Неверная стартовая строка:", firstLine)
@@ -33,31 +30,33 @@ func handleClient(clientConn net.Conn) {
 	}
 	method, rawURL, version := parts[0], parts[1], parts[2]
 
-	// 2) Считываем заголовки (до пустой строки "\r\n")
-	var headers []string
-	var contentLength = -1
-	var isChunked bool
+	if strings.ToUpper(method) == "CONNECT" {
+		handleConnect(clientConn, reader, rawURL, version)
+	} else {
+		handleHTTP(clientConn, reader, method, rawURL, version)
+	}
+}
 
+func handleHTTP(clientConn net.Conn, reader *bufio.Reader, method, rawURL, version string) {
+
+	headers := []string{}
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Println("Ошибка чтения заголовков:", err)
-			return
-		}
-		line = strings.TrimRight(line, "\r\n")
 
-		if line == "" {
-			// Пустая строка — конец секции заголовков
 			break
 		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
 
+			break
+		}
 		headers = append(headers, line)
 	}
 
-	// 3) Парсим URL для извлечения хоста, порта, пути
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		fmt.Println("Ошибка парсинга URL:", err)
+		fmt.Println("Ошибка парсинга URL:", rawURL, err)
 		return
 	}
 	host := parsedURL.Hostname()
@@ -66,124 +65,115 @@ func handleClient(clientConn net.Conn) {
 		port = "80"
 	}
 	path := parsedURL.RequestURI()
+	if path == "" {
+		path = "/"
+	}
 
 	newFirstLine := fmt.Sprintf("%s %s %s", method, path, version)
 
-	// 4) Удаляем Proxy-Connection, правим Host, ищем Content-Length, Transfer-Encoding
 	newHeaders := make([]string, 0, len(headers))
 	var hasHost bool
-
 	for _, h := range headers {
-
 		hv := strings.SplitN(h, ":", 2)
-		if len(hv) != 2 {
-			continue
-		}
-		name := strings.TrimSpace(hv[0])
-		val := strings.TrimSpace(hv[1])
-		lowerName := strings.ToLower(name)
+		if len(hv) == 2 {
+			name := strings.TrimSpace(hv[0])
+			val := strings.TrimSpace(hv[1])
+			lower := strings.ToLower(name)
 
-		if lowerName == "proxy-connection" {
+			if lower == "proxy-connection" {
 
-			continue
-		}
-
-		if lowerName == "host" {
-			val = host
-			hasHost = true
-		}
-
-		if lowerName == "content-length" {
-			cl, err := strconv.Atoi(val)
-			if err == nil {
-				contentLength = cl
+				continue
 			}
-		}
+			if lower == "host" {
 
-		// Если это Transfer-Encoding, проверим chunked
-		if lowerName == "transfer-encoding" && strings.Contains(strings.ToLower(val), "chunked") {
-			isChunked = true
+				val = host
+				hasHost = true
+			}
+			newHeaders = append(newHeaders, fmt.Sprintf("%s: %s", name, val))
 		}
-
-		newHeaders = append(newHeaders, fmt.Sprintf("%s: %s", name, val))
 	}
-
 	if !hasHost {
 		newHeaders = append(newHeaders, "Host: "+host)
 	}
 
-	// 5) Считываем тело запроса (POST/PUT и т.д.)
+	body := []byte{}
+	buf := make([]byte, 4096)
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			body = append(body, buf[:n]...)
+		}
+		if err != nil {
 
-	var bodyData []byte
-
-	if method == "GET" || method == "HEAD" || method == "OPTIONS" {
-		bodyData = nil
-	} else {
-		if contentLength > 0 {
-			// Считаем ровно contentLength байт
-			bodyData = make([]byte, contentLength)
-			if _, err := io.ReadFull(reader, bodyData); err != nil {
-				fmt.Println("Ошибка чтения тела запроса по Content-Length:", err)
-			}
-		} else if isChunked {
-			fmt.Println("Запрос с chunked encoding")
-		} else {
-			// Нет Content-Length, нет chunked => читаем до EOF с небольшим таймаутом
-			_ = clientConn.SetReadDeadline(time.Now().Add(1 * time.Second))
-			buf := make([]byte, 4096)
-			for {
-				n, err := reader.Read(buf)
-				if n > 0 {
-					bodyData = append(bodyData, buf[:n]...)
-				}
-				if err != nil {
-					break
-				}
-			}
-			_ = clientConn.SetReadDeadline(time.Time{})
+			break
 		}
 	}
 
-	// 6) Устанавливаем соединение с целевым сервером
 	remoteConn, err := net.Dial("tcp", net.JoinHostPort(host, port))
 	if err != nil {
-		fmt.Println("Ошибка подключения к удалённому серверу:", err)
+		fmt.Println("Ошибка подключения к серверу:", err)
 		return
 	}
 	defer remoteConn.Close()
 
-	// 7) Формируем новый запрос: первая строка + заголовки + пустая строка + тело
-	finalRequest := newFirstLine + "\r\n" + strings.Join(newHeaders, "\r\n") + "\r\n\r\n"
-	_, err = remoteConn.Write([]byte(finalRequest))
+	reqStr := newFirstLine + "\r\n" + strings.Join(newHeaders, "\r\n") + "\r\n\r\n"
+	_, _ = remoteConn.Write([]byte(reqStr))
+	if len(body) > 0 {
+		_, _ = remoteConn.Write(body)
+	}
+
+	go io.Copy(remoteConn, reader)
+	io.Copy(clientConn, remoteConn)
+}
+
+func handleConnect(clientConn net.Conn, reader *bufio.Reader, rawURL, version string) {
+
+	hostPort := rawURL
+	if !strings.Contains(hostPort, ":") {
+		hostPort += ":443"
+	}
+
+	resp := "HTTP/1.0 200 Connection established\r\n\r\n"
+	_, _ = clientConn.Write([]byte(resp))
+
+	host, port, err := net.SplitHostPort(hostPort)
 	if err != nil {
-		fmt.Println("Ошибка записи заголовков на сервер:", err)
+		fmt.Println("Ошибка SplitHostPort:", hostPort, err)
 		return
 	}
 
-	if len(bodyData) > 0 {
-		_, err = remoteConn.Write(bodyData)
-		if err != nil {
-			fmt.Println("Ошибка записи тела на сервер:", err)
-			return
-		}
+	cert, err := getOrGenerateCert(host)
+	if err != nil {
+		fmt.Println("Ошибка getOrGenerateCert:", err)
+		return
 	}
 
-	// 8) Читаем ответ от сервера и пересылаем обратно клиенту
-	respBuf := make([]byte, 4096)
-	for {
-		n, err := remoteConn.Read(respBuf)
-		if n > 0 {
-			_, err2 := clientConn.Write(respBuf[:n])
-			if err2 != nil {
-				fmt.Println("Ошибка при отправке ответа клиенту:", err2)
-				return
-			}
-		}
-		if err != nil {
-			if err != io.EOF {
-				fmt.Println("Ошибка при чтении ответа от сервера:", err)
-			}
-			break
-		}
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{*cert},
+		ServerName:   host,
 	}
+	tlsClientConn := tls.Server(clientConn, tlsConfig)
+
+	err = tlsClientConn.Handshake()
+	if err != nil {
+		fmt.Println("Ошибка TLS Handshake (клиент->прокси):", err)
+		tlsClientConn.Close()
+		return
+	}
+
+	realTLS, err := tls.Dial("tcp", net.JoinHostPort(host, port), &tls.Config{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		fmt.Println("Ошибка Dial к реальному серверу:", err)
+		tlsClientConn.Close()
+		return
+	}
+
+	// Пересылаем данные: клиент <-> (наш TLS-сервер) <-> реальный TLS-сервер
+	go io.Copy(realTLS, tlsClientConn)
+	io.Copy(tlsClientConn, realTLS)
+
+	realTLS.Close()
+	tlsClientConn.Close()
 }
